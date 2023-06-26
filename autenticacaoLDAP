@@ -1,0 +1,78 @@
+# Habilitando integração LDAP no servidor linux
+
+Requisitos
+
+- Usuário administrador no linux
+- Usuário com privilégios de inserção no dominio
+- Dados do domínio
+- Permissão no domínio para alterar informações do usuário
+
+Ambiente utilizado
+- Ubuntu 22.04 LTS
+
+Instalação de pacotes necessários
+# sudo apt install sssd-ad sssd-tools realmd adcli krb5-user
+
+Durante a instalação será perguntado sobre o domínio. Inserir o FQDN, em maiusculo.
+Ex.: LOCAL.COM
+Teste de acesso ao domínio:
+# sudo realm -v discover <FQDN do domínio, em maiusculo>
+
+Caso tenha sucesso, será exibido as informações do domínio.
+
+Inserir o servidor no domínio. Não usar o formato DOMINIO\usuario ou usuario@dominio. Usar somente o login.
+# sudo realm join -U <usuario> -v <fqdn_dominio>
+
+Caso, o dominio exija a conta de computador previamente criada inserir o parametro --computer-ou=<local_do_objeto_contaComputador>
+Ex.: sudo realm join -U <usuario> -v <fqdn_dominio> --computer-ou=<OU=Computers,DC=local,DC=com>
+Mensagem - * Successfully enrolled machine in realm.
+A partir deste comando qualquer pessoa do domínio conseguirá logar na máquina e a máquina estará registrada no domínio. Mas vamos restringir isso em seguida.
+
+Por padrão, o usuário, ao logar, não terá um home directory criado. Para resolver isso, rode o comando abaixo.
+# sudo pam-auth-update --enable mkhomedir
+
+Testar o acesso ao domínio:
+USER=<usuario>@<FQDN do domínio, minúsculo>
+getent passwd $USER
+groups $USER
+
+Habilitar root e limitar acesso
+Por padrão os domain admins não terão capacidade de sudo. Você poderia colocá-los manualmente no arquivos de sudoers, mas dá para colocar com seu grupo. Rode sudo visudo e no arquivo de sudoers coloque, no final (trocando pelo FQDN correto, minúsculo):
+# Allow domain admins
+"%domain admins@<FQDN do domínio>" ALL=(ALL:ALL) ALL
+
+Para impedir que usuários não admins se loguem no servidor, precisamos alterar uma configuração do SSSD. 
+Altere o arquivo de configuração do sssd que fica em /etc/sssd/sssd.conf.
+Coloque estas configurações a seguir sob a seção [domain/<FQDN do domínio>].
+Comentar a linha access_provider = ad
+
+Inserir as informações:
+access_provider = simple
+simple_allow_groups = Domain Admins@<FQDN do domínio, maiúsculo>
+
+Isso é uma conveniência, e não é necessário. No mesmo arquivo, sob a seção [sssd], adicione:
+default_domain_suffix = <FQDN do domínio, minúsculo>
+
+Reinicie o SSSD para aplicar as configurações:
+# sudo systemctl restart sssd
+
+Para testar um login, rode, por exemplo:
+# USER=<usuario>@<FQDN do domínio, minúsculo>
+# sudo login $USER
+# klist #vai exibir os tokens do Kerberos do usuário
+
+Tente logar com um usuário não admin, você deverá receber um erro.
+Teste de outra máquina o acesso via ssh, você terá que informar a senha de domínio:
+# USER=<usuario>@<FQDN do domínio, minúsculo>
+# ssh $USER@nomedoservidor
+
+
+Habilitando registro da chave SSH no domínio
+É possível armazenar as chaves públicas do SSH de um usuário no Active Directory. A maioria dos artigos que li indicam para fazê-lo no atributo altSecurityIdentities. Lá, você coloca exatamente a chave pública que ficaria guardada em um arquivo id_rsa.pub.
+Para criar a chave pública para o usuário no AD, utilize o Active Directory Users and Computers. Habilite o modo avançado em View > Advanced Features. Encontre o usuário e abra os detalhes. Na aba Attribute Editor, procure o atributo altSecurityIdentities, abra-o, e inclua a chave. Você pode incluir mais de uma chave se precisar. Clique em OK.
+Ou, via PowerShell
+1	# primeiro garanta que o usuário está certo, e que a consulta retorna só o usuário que você quer alterar
+2	Get-ADUser -SearchBase 'DC=<dominio>,DC=com,DC=br' -Filter "UserPrincipalName -eq '<usuário>@<FQDN usuário>'"
+3	# em seguida, execute a alteração:
+4	Get-ADUser -SearchBase 'DC=<dominio>,DC=com,DC=br' -Filter "UserPrincipalName -eq '<usuário>@<FQDN usuário>'" | % { Set-ADUser $_ -Add @{'altSecurityIdentities'='<chave pública do SSH>'} }
+
