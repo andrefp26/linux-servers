@@ -75,4 +75,4 @@ Ou, via PowerShell
 2	Get-ADUser -SearchBase 'DC=<dominio>,DC=com,DC=br' -Filter "UserPrincipalName -eq '<usuário>@<FQDN usuário>'"
 3	# em seguida, execute a alteração:
 4	Get-ADUser -SearchBase 'DC=<dominio>,DC=com,DC=br' -Filter "UserPrincipalName -eq '<usuário>@<FQDN usuário>'" | % { Set-ADUser $_ -Add @{'altSecurityIdentities'='<chave pública do SSH>'} }
-
+d
